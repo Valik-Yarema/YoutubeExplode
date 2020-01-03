@@ -50,7 +50,7 @@ namespace YoutubeExplode
                 throw new ArgumentException($"Invalid YouTube channel ID [{channelId}].", nameof(channelId));
 
             // Get channel page HTML
-            var channelPageHtml = await GetChannelPageHtmlAsync(channelId).ConfigureAwait(false);
+            HtmlDocument channelPageHtml = await GetChannelPageHtmlAsync(channelId).ConfigureAwait(false);
 
             // Extract info
             var channelTitle = channelPageHtml.GetElementsBySelector("meta[property=\"og:title\"]")

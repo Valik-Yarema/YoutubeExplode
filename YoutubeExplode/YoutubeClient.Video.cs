@@ -28,6 +28,7 @@ namespace YoutubeExplode
 
             // Execute request
             var url = $"https://youtube.com/get_video_info?video_id={videoId}&el=embedded&eurl={eurl}&hl=en";
+            // var row1 = new RHttpWebRequest(url);
             var raw = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
 
             // Parse response as URL-encoded dictionary
@@ -39,17 +40,27 @@ namespace YoutubeExplode
         private async Task<HtmlDocument> GetVideoWatchPageHtmlAsync(string videoId)
         {
             var url = $"https://youtube.com/watch?v={videoId}&disable_polymer=true&bpctr=9999999999&hl=en";
+            // var row1 = new RHttpWebRequest(url);
+            var raw = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
+            var result = HtmlParser.Default.ParseDocument(raw);
+            return result;
+        }
+        private async Task<string> GetVideoWatchPageHtmlStringAsync(string videoId)
+        {
+            var url = $"https://youtube.com/watch?v={videoId}&disable_polymer=true&bpctr=9999999999&hl=en";
+            // var row1 = new RHttpWebRequest(url);
             var raw = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
 
-            return HtmlParser.Default.ParseDocument(raw);
+            return raw;
         }
 
         private async Task<HtmlDocument> GetVideoEmbedPageHtmlAsync(string videoId)
         {
             var url = $"https://youtube.com/embed/{videoId}?disable_polymer=true&hl=en";
-            var raw = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
+            string raw = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
 
-            return HtmlParser.Default.ParseDocument(raw);
+            var result = HtmlParser.Default.ParseDocument(raw);
+            return result;
         }
 
         private async Task<XElement> GetDashManifestXmlAsync(string url)
@@ -65,17 +76,50 @@ namespace YoutubeExplode
             // Try to get from video info
             {
                 // Get video embed page HTML
-                var videoEmbedPageHtml = await GetVideoEmbedPageHtmlAsync(videoId).ConfigureAwait(false);
+                HtmlDocument videoEmbedPageHtml = await GetVideoEmbedPageHtmlAsync(videoId).ConfigureAwait(false);
 
                 // Get player config JSON
+                string pageHtml = await GetVideoWatchPageHtmlStringAsync(videoId).ConfigureAwait(false);
                 var playerConfigRaw = videoEmbedPageHtml.GetElementsByTagName("script")
                     .Select(e => e.GetInnerText())
                     .Select(s => Regex.Match(s, @"yt\.setConfig\({'PLAYER_CONFIG':(.*)}\);").Groups[1].Value)
                     .First(s => !string.IsNullOrWhiteSpace(s));
+                //string strRegex = @"^.*?(?<scripts>\<script.*?\>.*?(?<Player>yt.setConfig.*?).*?\<\/script\>).*?$";
+                //Regex myRegex = new Regex(strRegex, RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.ExplicitCapture | RegexOptions.Singleline | RegexOptions.CultureInvariant);
+                //foreach (Match myMatch in myRegex.Matches(pageHtml))
+                //{
+                //    if (myMatch.Success)
+                //    {
+                //        // Add your code here
+                //    }
+                //}
+
+                //MatchCollection elements = Regex.Matches(pageHtml, "^.*?(?<scripts><script.*?>.*?(?<Player>yt.setConfig.*?).*?<//script>).*?$", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+                //foreach(Match el in elements)
+                //{
+                //    if(Regex.IsMatch(el.Groups[1].Value, @"yt\.setConfig\({ 'PLAYER_CONFIG':(.*)}\);", RegexOptions.Multiline| RegexOptions.IgnoreCase))
+                //    {
+                //      var s=  Regex.Match(el.Groups[1].Value, @"yt\.setConfig\({'PLAYER_CONFIG':(.*)}\);").Groups[1].Value;
+                //    }
+                //}
+
+                //{ytplayer.config = {"assets":{"css":"\/yts\/cssbin\/player-vfldpV8mM\/www-player.css","js":"\/yts\/jsbin\/player_ias-vfl22ubNH\/en_US\/base.js"}}
+                //"/yts/jsbin/player_ias-vfl22ubNH/en_US/base.js"
+                var testConf = Regex.Match(pageHtml, @"(ytplayer\.config\s*=\s*{.assets.*?})").Value;
+                //Regex myRegex = new Regex(@"?<scripts>(\/ yts.*?\.js)");
+                //foreach (Match myMatch in myRegex.Matches(testConf))
+                //{
+                //    if (myMatch.Success)
+                //    {
+                //        // Add your code here
+                //    }
+                //}
+
                 var playerConfigJson = JToken.Parse(playerConfigRaw);
 
+                var needInfo = playerConfigJson.SelectToken("assets.js").Value<string>();
                 // Extract player source URL
-                var playerSourceUrl = "https://youtube.com" + playerConfigJson.SelectToken("assets.js").Value<string>();
+                var playerSourceUrl = "https://youtube.com" + "/yts/jsbin/player_ias-vfl22ubNH/en_US/base.js";//playerConfigJson.SelectToken("assets.js").Value<string>();
 
                 // Get video info dictionary
                 var requestedAt = DateTimeOffset.Now;
@@ -150,7 +194,7 @@ namespace YoutubeExplode
             {
                 // Get video watch page HTML
                 var requestedAt = DateTimeOffset.Now;
-                var videoWatchPageHtml = await GetVideoWatchPageHtmlAsync(videoId).ConfigureAwait(false);
+                HtmlDocument videoWatchPageHtml = await GetVideoWatchPageHtmlAsync(videoId).ConfigureAwait(false);
 
                 // Extract player config
                 var playerConfigRaw = videoWatchPageHtml.GetElementsByTagName("script")
@@ -308,7 +352,7 @@ namespace YoutubeExplode
             var videoViewCount = playerResponseJson.SelectToken("videoDetails.viewCount")?.Value<long>() ?? 0; // some videos have no views
 
             // Get video watch page HTML
-            var videoWatchPageHtml = await GetVideoWatchPageHtmlAsync(videoId).ConfigureAwait(false);
+            HtmlDocument videoWatchPageHtml = await GetVideoWatchPageHtmlAsync(videoId).ConfigureAwait(false);
 
             // Extract upload date
             var videoUploadDate = videoWatchPageHtml.GetElementsBySelector("meta[itemprop=\"datePublished\"]")
@@ -341,7 +385,7 @@ namespace YoutubeExplode
                 throw new ArgumentException($"Invalid YouTube video ID [{videoId}].", nameof(videoId));
 
             // Get video info dictionary
-            var videoInfoDic = await GetVideoInfoDicAsync(videoId).ConfigureAwait(false);
+            IReadOnlyDictionary<string, string> videoInfoDic = await GetVideoInfoDicAsync(videoId).ConfigureAwait(false);
 
             // Get player response JSON
             var playerResponseJson = JToken.Parse(videoInfoDic["player_response"]);
@@ -453,7 +497,7 @@ namespace YoutubeExplode
 
                         url = cipherDic["url"];
                         var signature = cipherDic["s"];
-                        
+
                         // Get cipher operations (cached)
                         var cipherOperations = await GetCipherOperationsAsync(playerConfiguration.PlayerSourceUrl).ConfigureAwait(false);
 
@@ -710,10 +754,10 @@ namespace YoutubeExplode
                 foreach (var streamInfoXml in streamInfoXmls)
                 {
                     // Extract info
-                    var itag = (int) streamInfoXml.Attribute("id");
-                    var url = (string) streamInfoXml.Element("BaseURL");
+                    var itag = (int)streamInfoXml.Attribute("id");
+                    var url = (string)streamInfoXml.Element("BaseURL");
                     var contentLength = Regex.Match(url, @"clen[/=](\d+)").Groups[1].Value.ParseLong();
-                    var bitrate = (long) streamInfoXml.Attribute("bandwidth");
+                    var bitrate = (long)streamInfoXml.Attribute("bandwidth");
 
                     // Extract container
                     var containerRaw = Regex.Match(url, @"mime[/=]\w*%2F([\w\d]*)").Groups[1].Value.UrlDecode();
@@ -723,7 +767,7 @@ namespace YoutubeExplode
                     if (streamInfoXml.Element("AudioChannelConfiguration") != null)
                     {
                         // Extract audio encoding
-                        var audioEncodingRaw = (string) streamInfoXml.Attribute("codecs");
+                        var audioEncodingRaw = (string)streamInfoXml.Attribute("codecs");
                         var audioEncoding = Heuristics.AudioEncodingFromString(audioEncodingRaw);
 
                         // Add to list
@@ -733,16 +777,16 @@ namespace YoutubeExplode
                     else
                     {
                         // Extract video encoding
-                        var videoEncodingRaw = (string) streamInfoXml.Attribute("codecs");
+                        var videoEncodingRaw = (string)streamInfoXml.Attribute("codecs");
                         var videoEncoding = Heuristics.VideoEncodingFromString(videoEncodingRaw);
 
                         // Extract resolution
-                        var width = (int) streamInfoXml.Attribute("width");
-                        var height = (int) streamInfoXml.Attribute("height");
+                        var width = (int)streamInfoXml.Attribute("width");
+                        var height = (int)streamInfoXml.Attribute("height");
                         var resolution = new VideoResolution(width, height);
 
                         // Extract framerate
-                        var framerate = (int) streamInfoXml.Attribute("frameRate");
+                        var framerate = (int)streamInfoXml.Attribute("frameRate");
 
                         // Determine video quality from itag
                         var videoQuality = Heuristics.VideoQualityFromItag(itag);
